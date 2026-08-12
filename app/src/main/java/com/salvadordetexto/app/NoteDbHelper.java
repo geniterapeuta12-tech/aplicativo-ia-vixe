@@ -12,26 +12,48 @@ import java.util.List;
 
 public class NoteDbHelper extends SQLiteOpenHelper {
     private static final String DB_NAME = "salvador_texto.db";
-    private static final int DB_VERSION = 2;
+    private static final int DB_VERSION = 3;
 
     public NoteDbHelper(Context context) { super(context, DB_NAME, null, DB_VERSION); }
 
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL DEFAULT '',content TEXT NOT NULL DEFAULT '',category TEXT NOT NULL DEFAULT '',favorite INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,deleted_at INTEGER NOT NULL DEFAULT 0)");
         db.execSQL("CREATE INDEX idx_notes_updated ON notes(updated_at DESC)");
+        createListsTable(db);
+        seedLists(db);
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         if (oldVersion < 2) db.execSQL("ALTER TABLE notes ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0");
+        if (oldVersion < 3) {
+            createListsTable(db);
+            seedLists(db);
+            db.execSQL("INSERT OR IGNORE INTO lists(name) SELECT DISTINCT TRIM(category) FROM notes WHERE TRIM(category)<>''");
+        }
+    }
+
+    private void createListsTable(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS lists (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE COLLATE NOCASE)");
+    }
+
+    private void seedLists(SQLiteDatabase db) {
+        String[] defaults = {"Pessoal","Trabalho","Estudos","Clientes","Ideias"};
+        for (String name : defaults) {
+            ContentValues v = new ContentValues();
+            v.put("name", name);
+            db.insertWithOnConflict("lists", null, v, SQLiteDatabase.CONFLICT_IGNORE);
+        }
     }
 
     public long save(Note note) {
         SQLiteDatabase db = getWritableDatabase();
         long now = System.currentTimeMillis();
+        String listName = note.category == null ? "" : note.category.trim();
+        if (!listName.isEmpty()) addList(listName);
         ContentValues v = new ContentValues();
         v.put("title", note.title == null ? "" : note.title.trim());
         v.put("content", note.content == null ? "" : note.content);
-        v.put("category", note.category == null ? "" : note.category.trim());
+        v.put("category", listName);
         v.put("favorite", note.favorite ? 1 : 0);
         v.put("updated_at", now);
         v.put("deleted_at", 0);
@@ -44,6 +66,22 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         }
         note.updatedAt = now;
         return note.id;
+    }
+
+    public void addList(String name) {
+        String n = name == null ? "" : name.trim();
+        if (n.isEmpty()) return;
+        ContentValues v = new ContentValues();
+        v.put("name", n);
+        getWritableDatabase().insertWithOnConflict("lists", null, v, SQLiteDatabase.CONFLICT_IGNORE);
+    }
+
+    public List<String> getLists() {
+        List<String> out = new ArrayList<>();
+        try (Cursor c = getReadableDatabase().query("lists", new String[]{"name"}, null, null, null, null, "name COLLATE NOCASE ASC")) {
+            while (c.moveToNext()) out.add(c.getString(0));
+        }
+        return out;
     }
 
     public void moveToTrash(long id) {
@@ -59,13 +97,8 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         getWritableDatabase().update("notes", v, "id=?", new String[]{String.valueOf(id)});
     }
 
-    public void deletePermanently(long id) {
-        getWritableDatabase().delete("notes", "id=?", new String[]{String.valueOf(id)});
-    }
-
-    public void emptyTrash() {
-        getWritableDatabase().delete("notes", "deleted_at>0", null);
-    }
+    public void deletePermanently(long id) { getWritableDatabase().delete("notes", "id=?", new String[]{String.valueOf(id)}); }
+    public void emptyTrash() { getWritableDatabase().delete("notes", "deleted_at>0", null); }
 
     public Note duplicate(Note source) {
         Note copy = new Note(0, source.title.isEmpty() ? "Cópia" : source.title + " (cópia)", source.content, source.category, false, 0, 0);
@@ -73,21 +106,21 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         return copy;
     }
 
-    public List<Note> search(String query, boolean favoritesOnly) {
-        return queryNotes(query, favoritesOnly, false);
-    }
+    public List<Note> search(String query, boolean favoritesOnly) { return queryNotes(query, favoritesOnly, false, null); }
+    public List<Note> search(String query, boolean favoritesOnly, String listName) { return queryNotes(query, favoritesOnly, false, listName); }
+    public List<Note> searchTrash(String query) { return queryNotes(query, false, true, null); }
 
-    public List<Note> searchTrash(String query) {
-        return queryNotes(query, false, true);
-    }
-
-    private List<Note> queryNotes(String query, boolean favoritesOnly, boolean trash) {
+    private List<Note> queryNotes(String query, boolean favoritesOnly, boolean trash, String listName) {
         SQLiteDatabase db = getReadableDatabase();
         List<Note> out = new ArrayList<>();
         String q = query == null ? "" : query.trim();
         StringBuilder where = new StringBuilder(trash ? "deleted_at>0" : "deleted_at=0");
         List<String> args = new ArrayList<>();
         if (favoritesOnly && !trash) where.append(" AND favorite=1");
+        if (!trash && listName != null && !listName.trim().isEmpty()) {
+            where.append(" AND category=? COLLATE NOCASE");
+            args.add(listName.trim());
+        }
         if (!q.isEmpty()) {
             where.append(" AND (title LIKE ? OR content LIKE ? OR category LIKE ?)");
             String like = "%" + q + "%";
@@ -100,15 +133,7 @@ public class NoteDbHelper extends SQLiteOpenHelper {
     }
 
     private Note fromCursor(Cursor c) {
-        return new Note(
-                c.getLong(c.getColumnIndexOrThrow("id")),
-                c.getString(c.getColumnIndexOrThrow("title")),
-                c.getString(c.getColumnIndexOrThrow("content")),
-                c.getString(c.getColumnIndexOrThrow("category")),
-                c.getInt(c.getColumnIndexOrThrow("favorite")) == 1,
-                c.getLong(c.getColumnIndexOrThrow("created_at")),
-                c.getLong(c.getColumnIndexOrThrow("updated_at"))
-        );
+        return new Note(c.getLong(c.getColumnIndexOrThrow("id")), c.getString(c.getColumnIndexOrThrow("title")), c.getString(c.getColumnIndexOrThrow("content")), c.getString(c.getColumnIndexOrThrow("category")), c.getInt(c.getColumnIndexOrThrow("favorite")) == 1, c.getLong(c.getColumnIndexOrThrow("created_at")), c.getLong(c.getColumnIndexOrThrow("updated_at")));
     }
 
     public String exportJson() throws Exception {
@@ -127,9 +152,12 @@ public class NoteDbHelper extends SQLiteOpenHelper {
                 notes.put(o);
             }
         }
+        JSONArray lists = new JSONArray();
+        for (String name : getLists()) lists.put(name);
         JSONObject root = new JSONObject();
         root.put("format", "salvador-de-texto-backup-v1");
         root.put("createdAt", System.currentTimeMillis());
+        root.put("lists", lists);
         root.put("notes", notes);
         return root.toString(2);
     }
@@ -142,22 +170,26 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         db.beginTransaction();
         try {
             db.delete("notes", null, null);
+            db.delete("lists", null, null);
+            seedLists(db);
+            JSONArray lists = root.optJSONArray("lists");
+            if (lists != null) {
+                for (int i=0;i<lists.length();i++) {
+                    ContentValues lv=new ContentValues(); lv.put("name",lists.optString(i,""));
+                    if(!lists.optString(i,"").trim().isEmpty()) db.insertWithOnConflict("lists",null,lv,SQLiteDatabase.CONFLICT_IGNORE);
+                }
+            }
             for (int i = 0; i < notes.length(); i++) {
                 JSONObject o = notes.getJSONObject(i);
+                String category = o.optString("category", "");
                 ContentValues v = new ContentValues();
-                v.put("title", o.optString("title", ""));
-                v.put("content", o.optString("content", ""));
-                v.put("category", o.optString("category", ""));
-                v.put("favorite", o.optBoolean("favorite", false) ? 1 : 0);
-                v.put("created_at", o.optLong("createdAt", System.currentTimeMillis()));
-                v.put("updated_at", o.optLong("updatedAt", System.currentTimeMillis()));
-                v.put("deleted_at", o.optLong("deletedAt", 0));
-                db.insertOrThrow("notes", null, v);
+                v.put("title", o.optString("title", "")); v.put("content", o.optString("content", "")); v.put("category", category);
+                v.put("favorite", o.optBoolean("favorite", false) ? 1 : 0); v.put("created_at", o.optLong("createdAt", System.currentTimeMillis()));
+                v.put("updated_at", o.optLong("updatedAt", System.currentTimeMillis())); v.put("deleted_at", o.optLong("deletedAt", 0)); db.insertOrThrow("notes", null, v);
+                if (!category.trim().isEmpty()) { ContentValues lv=new ContentValues(); lv.put("name",category.trim()); db.insertWithOnConflict("lists",null,lv,SQLiteDatabase.CONFLICT_IGNORE); }
             }
             db.setTransactionSuccessful();
-        } finally {
-            db.endTransaction();
-        }
+        } finally { db.endTransaction(); }
         return notes.length();
     }
 }
