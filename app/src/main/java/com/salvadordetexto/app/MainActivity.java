@@ -15,12 +15,14 @@ import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.io.BufferedReader;
@@ -40,7 +42,9 @@ public class MainActivity extends Activity {
     private EditText search;
     private CheckBox favorites;
     private ListView list;
+    private Button listFilterButton;
     private boolean trashMode = false;
+    private String selectedList = null;
     private final NoteAdapter adapter = new NoteAdapter();
 
     @Override protected void onCreate(Bundle state) {
@@ -80,8 +84,11 @@ public class MainActivity extends Activity {
         tools.addView(restore, new LinearLayout.LayoutParams(0, dp(48), 1f));
         root.addView(tools);
 
+        listFilterButton = smallButton("Listas: Todas");
+        root.addView(listFilterButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+
         search = new EditText(this);
-        search.setHint("Pesquisar por título, texto ou categoria");
+        search.setHint("Pesquisar por título, texto ou lista");
         search.setSingleLine(true);
         search.setPadding(dp(12), dp(8), dp(12), dp(8));
         root.addView(search, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
@@ -105,13 +112,20 @@ public class MainActivity extends Activity {
             public void afterTextChanged(Editable e) {}
         });
         favorites.setOnCheckedChangeListener((b, checked) -> reload());
+        listFilterButton.setOnClickListener(v -> showListsDialog());
         add.setOnClickListener(v -> {
-            if (trashMode) { trashMode = false; favorites.setEnabled(true); add.setText("+ Novo texto"); reload(); }
-            else openEditor(new Note(0,"","","Pessoal",false,0,0));
+            if (trashMode) {
+                trashMode = false;
+                favorites.setEnabled(true);
+                listFilterButton.setEnabled(true);
+                add.setText("+ Novo texto");
+                reload();
+            } else openEditor(new Note(0,"","", selectedList == null ? "Pessoal" : selectedList,false,0,0));
         });
         trash.setOnClickListener(v -> {
             trashMode = !trashMode;
             favorites.setEnabled(!trashMode);
+            listFilterButton.setEnabled(!trashMode);
             favorites.setChecked(false);
             add.setText(trashMode ? "← Voltar aos textos" : "+ Novo texto");
             trash.setText(trashMode ? "Na lixeira" : "Lixeira");
@@ -131,11 +145,50 @@ public class MainActivity extends Activity {
         return root;
     }
 
+    private void showListsDialog() {
+        List<String> names = new ArrayList<>();
+        names.add("Todas as listas");
+        names.addAll(db.getLists());
+        names.add("+ Criar nova lista");
+        new AlertDialog.Builder(this).setTitle("Listas").setItems(names.toArray(new String[0]), (d, which) -> {
+            if (which == 0) {
+                selectedList = null;
+                listFilterButton.setText("Listas: Todas");
+                reload();
+            } else if (which == names.size() - 1) {
+                createListDialog();
+            } else {
+                selectedList = names.get(which);
+                listFilterButton.setText("Lista: " + selectedList);
+                reload();
+            }
+        }).show();
+    }
+
+    private void createListDialog() {
+        EditText input = new EditText(this);
+        input.setHint("Nome da lista");
+        input.setSingleLine(true);
+        int p = dp(20);
+        LinearLayout box = new LinearLayout(this);
+        box.setPadding(p, dp(6), p, 0);
+        box.addView(input, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        new AlertDialog.Builder(this).setTitle("Nova lista").setView(box).setNegativeButton("Cancelar", null).setPositiveButton("Criar", (d,w) -> {
+            String name = input.getText().toString().trim();
+            if (name.isEmpty()) { Toast.makeText(this,"Digite um nome para a lista.",Toast.LENGTH_SHORT).show(); return; }
+            db.addList(name);
+            selectedList = name;
+            listFilterButton.setText("Lista: " + name);
+            reload();
+            Toast.makeText(this,"Lista criada.",Toast.LENGTH_SHORT).show();
+        }).show();
+    }
+
     private void reload() {
         if (db == null || search == null || favorites == null) return;
         adapter.items.clear();
         if (trashMode) adapter.items.addAll(db.searchTrash(search.getText().toString()));
-        else adapter.items.addAll(db.search(search.getText().toString(), favorites.isChecked()));
+        else adapter.items.addAll(db.search(search.getText().toString(), favorites.isChecked(), selectedList));
         adapter.notifyDataSetChanged();
     }
 
@@ -144,20 +197,49 @@ public class MainActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(18), dp(8), dp(18), 0);
         EditText title = new EditText(this); title.setHint("Título"); title.setText(note.title); box.addView(title);
-        EditText category = new EditText(this); category.setHint("Categoria"); category.setText(note.category); box.addView(category);
+
+        TextView listLabel = new TextView(this); listLabel.setText("Lista"); listLabel.setTextSize(13); listLabel.setTextColor(Color.DKGRAY); listLabel.setPadding(0,dp(6),0,0); box.addView(listLabel);
+        List<String> lists = new ArrayList<>(db.getLists());
+        if (note.category != null && !note.category.trim().isEmpty() && !containsIgnoreCase(lists,note.category.trim())) lists.add(note.category.trim());
+        if (lists.isEmpty()) lists.add("Pessoal");
+        Spinner spinner = new Spinner(this);
+        ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, lists);
+        spinner.setAdapter(spinnerAdapter);
+        int selected = 0;
+        for (int i=0;i<lists.size();i++) if (note.category != null && lists.get(i).equalsIgnoreCase(note.category.trim())) { selected=i; break; }
+        spinner.setSelection(selected);
+        box.addView(spinner);
+
+        Button newList = smallButton("+ Nova lista");
+        box.addView(newList, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
         CheckBox favorite = new CheckBox(this); favorite.setText("Favorito"); favorite.setChecked(note.favorite); box.addView(favorite);
         EditText content = new EditText(this); content.setHint("Digite ou cole seu texto aqui"); content.setGravity(Gravity.TOP); content.setMinLines(10); content.setText(note.content);
-        box.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)));
+        box.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(280)));
+
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle(note.id == 0 ? "Novo texto" : "Editar texto").setView(box).setPositiveButton("Salvar", null).setNegativeButton("Fechar", null).setNeutralButton("Compartilhar", null).create();
         dialog.setOnShowListener(x -> {
+            newList.setOnClickListener(v -> {
+                EditText input = new EditText(this); input.setHint("Nome da nova lista");
+                new AlertDialog.Builder(this).setTitle("Criar lista").setView(input).setNegativeButton("Cancelar",null).setPositiveButton("Criar",(a,b)->{
+                    String name=input.getText().toString().trim();
+                    if(!name.isEmpty()){
+                        db.addList(name); lists.add(name); spinnerAdapter.notifyDataSetChanged(); spinner.setSelection(lists.size()-1);
+                    }
+                }).show();
+            });
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                note.title=title.getText().toString(); note.category=category.getText().toString(); note.content=content.getText().toString(); note.favorite=favorite.isChecked();
+                note.title=title.getText().toString(); note.category=(String)spinner.getSelectedItem(); note.content=content.getText().toString(); note.favorite=favorite.isChecked();
                 if(note.title.trim().isEmpty()&&note.content.trim().isEmpty()){Toast.makeText(this,"Digite um título ou texto.",Toast.LENGTH_SHORT).show();return;}
                 db.save(note); reload(); Toast.makeText(this,"Texto salvo.",Toast.LENGTH_SHORT).show(); dialog.dismiss();
             });
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> dialog.dismiss());
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> share(title.getText().toString(),content.getText().toString()));
         }); dialog.show();
+    }
+
+    private boolean containsIgnoreCase(List<String> values, String target) {
+        for (String value : values) if (value.equalsIgnoreCase(target)) return true;
+        return false;
     }
 
     private void showActions(Note note) {
@@ -203,7 +285,7 @@ public class MainActivity extends Activity {
             }else if(requestCode==OPEN_BACKUP){
                 StringBuilder s=new StringBuilder();
                 try(BufferedReader r=new BufferedReader(new InputStreamReader(getContentResolver().openInputStream(uri),StandardCharsets.UTF_8))){String line;while((line=r.readLine())!=null)s.append(line).append('\n');}
-                int count=db.importJson(s.toString()); trashMode=false; favorites.setEnabled(true); reload();
+                int count=db.importJson(s.toString()); trashMode=false; selectedList=null; favorites.setEnabled(true); listFilterButton.setEnabled(true); listFilterButton.setText("Listas: Todas"); reload();
                 Toast.makeText(this,count+" textos restaurados.",Toast.LENGTH_LONG).show();
             }
         }catch(Exception e){Toast.makeText(this,"Não foi possível concluir: "+e.getMessage(),Toast.LENGTH_LONG).show();}
@@ -221,7 +303,7 @@ public class MainActivity extends Activity {
             Note n=items.get(p); LinearLayout row=new LinearLayout(MainActivity.this); row.setOrientation(LinearLayout.VERTICAL); row.setPadding(dp(14),dp(12),dp(14),dp(12)); row.setBackgroundColor(Color.WHITE);
             TextView t=new TextView(MainActivity.this); String name=n.title.trim().isEmpty()?"Texto sem título":n.title.trim(); t.setText((!trashMode&&n.favorite?"★  ":"")+name); t.setTextSize(18);t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);t.setTextColor(Color.rgb(32,33,36));row.addView(t);
             if(!n.content.trim().isEmpty()){TextView preview=new TextView(MainActivity.this);String s=n.content.replace('\n',' ').trim();if(s.length()>110)s=s.substring(0,110)+"…";preview.setText(s);preview.setTextSize(14);preview.setTextColor(Color.DKGRAY);preview.setPadding(0,dp(4),0,dp(4));row.addView(preview);}
-            TextView meta=new TextView(MainActivity.this);String cat=n.category.trim().isEmpty()?"Sem categoria":n.category;meta.setText((trashMode?"Lixeira • ":"")+cat+" • "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(n.updatedAt)));meta.setTextSize(12);meta.setTextColor(Color.GRAY);row.addView(meta);return row;
+            TextView meta=new TextView(MainActivity.this);String cat=n.category.trim().isEmpty()?"Sem lista":n.category;meta.setText((trashMode?"Lixeira • ":"")+cat+" • "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(n.updatedAt)));meta.setTextSize(12);meta.setTextColor(Color.GRAY);row.addView(meta);return row;
         }
     }
 }
