@@ -12,7 +12,7 @@ import java.util.List;
 
 public class NoteDbHelper extends SQLiteOpenHelper {
     private static final String DB_NAME = "salvador_texto.db";
-    private static final int DB_VERSION = 4;
+    private static final int DB_VERSION = 5;
 
     public NoteDbHelper(Context context) { super(context, DB_NAME, null, DB_VERSION); }
 
@@ -28,14 +28,23 @@ public class NoteDbHelper extends SQLiteOpenHelper {
             createListsTable(db);
             db.execSQL("INSERT OR IGNORE INTO lists(name) SELECT DISTINCT TRIM(category) FROM notes WHERE TRIM(category)<>''");
         }
-        if (oldVersion < 4) {
+        if (oldVersion < 4) createListsTable(db);
+        if (oldVersion < 5) {
             createListsTable(db);
-            db.execSQL("DELETE FROM lists WHERE name IN ('Pessoal','Trabalho','Estudos','Clientes','Ideias') AND name NOT IN (SELECT DISTINCT TRIM(category) FROM notes WHERE TRIM(category)<>'')");
+            // Remove de verdade as listas que vinham prontas nas versões antigas.
+            // Os textos continuam intactos; apenas deixam de ficar presos a uma lista padrão.
+            db.execSQL("UPDATE notes SET category='' WHERE LOWER(TRIM(category)) IN ('pessoal','trabalho','estudos','clientes','ideias')");
+            db.execSQL("DELETE FROM lists WHERE LOWER(TRIM(name)) IN ('pessoal','trabalho','estudos','clientes','ideias')");
         }
     }
 
     private void createListsTable(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS lists (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE COLLATE NOCASE)");
+    }
+
+    private boolean isLegacyDefault(String name) {
+        String n = name == null ? "" : name.trim().toLowerCase();
+        return n.equals("pessoal") || n.equals("trabalho") || n.equals("estudos") || n.equals("clientes") || n.equals("ideias");
     }
 
     public long save(Note note) {
@@ -168,17 +177,29 @@ public class NoteDbHelper extends SQLiteOpenHelper {
             if (lists != null) {
                 for (int i=0;i<lists.length();i++) {
                     String name=lists.optString(i,"").trim();
-                    if(!name.isEmpty()){ContentValues lv=new ContentValues();lv.put("name",name);db.insertWithOnConflict("lists",null,lv,SQLiteDatabase.CONFLICT_IGNORE);}
+                    if(!name.isEmpty() && !isLegacyDefault(name)){
+                        ContentValues lv=new ContentValues(); lv.put("name",name);
+                        db.insertWithOnConflict("lists",null,lv,SQLiteDatabase.CONFLICT_IGNORE);
+                    }
                 }
             }
             for (int i = 0; i < notes.length(); i++) {
                 JSONObject o = notes.getJSONObject(i);
-                String category = o.optString("category", "");
+                String category = o.optString("category", "").trim();
+                if (isLegacyDefault(category)) category = "";
                 ContentValues v = new ContentValues();
-                v.put("title", o.optString("title", "")); v.put("content", o.optString("content", "")); v.put("category", category);
-                v.put("favorite", o.optBoolean("favorite", false) ? 1 : 0); v.put("created_at", o.optLong("createdAt", System.currentTimeMillis()));
-                v.put("updated_at", o.optLong("updatedAt", System.currentTimeMillis())); v.put("deleted_at", o.optLong("deletedAt", 0)); db.insertOrThrow("notes", null, v);
-                if (!category.trim().isEmpty()) { ContentValues lv=new ContentValues(); lv.put("name",category.trim()); db.insertWithOnConflict("lists",null,lv,SQLiteDatabase.CONFLICT_IGNORE); }
+                v.put("title", o.optString("title", ""));
+                v.put("content", o.optString("content", ""));
+                v.put("category", category);
+                v.put("favorite", o.optBoolean("favorite", false) ? 1 : 0);
+                v.put("created_at", o.optLong("createdAt", System.currentTimeMillis()));
+                v.put("updated_at", o.optLong("updatedAt", System.currentTimeMillis()));
+                v.put("deleted_at", o.optLong("deletedAt", 0));
+                db.insertOrThrow("notes", null, v);
+                if (!category.isEmpty()) {
+                    ContentValues lv=new ContentValues(); lv.put("name",category);
+                    db.insertWithOnConflict("lists",null,lv,SQLiteDatabase.CONFLICT_IGNORE);
+                }
             }
             db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
