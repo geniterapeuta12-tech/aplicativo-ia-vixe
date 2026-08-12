@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -22,6 +23,10 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -29,10 +34,13 @@ import java.util.List;
 
 public class MainActivity extends Activity {
     private static final int PRIMARY = Color.rgb(52, 87, 213);
+    private static final int CREATE_BACKUP = 1001;
+    private static final int OPEN_BACKUP = 1002;
     private NoteDbHelper db;
     private EditText search;
     private CheckBox favorites;
     private ListView list;
+    private boolean trashMode = false;
     private final NoteAdapter adapter = new NoteAdapter();
 
     @Override protected void onCreate(Bundle state) {
@@ -59,8 +67,18 @@ public class MainActivity extends Activity {
         subtitle.setText("Seus textos ficam salvos neste aparelho");
         subtitle.setTextSize(14);
         subtitle.setTextColor(Color.DKGRAY);
-        subtitle.setPadding(0, dp(2), 0, dp(12));
+        subtitle.setPadding(0, dp(2), 0, dp(10));
         root.addView(subtitle);
+
+        LinearLayout tools = new LinearLayout(this);
+        tools.setOrientation(LinearLayout.HORIZONTAL);
+        Button trash = smallButton("Lixeira");
+        Button backup = smallButton("Backup");
+        Button restore = smallButton("Restaurar");
+        tools.addView(trash, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        tools.addView(backup, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        tools.addView(restore, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        root.addView(tools);
 
         search = new EditText(this);
         search.setHint("Pesquisar por título, texto ou categoria");
@@ -87,16 +105,37 @@ public class MainActivity extends Activity {
             public void afterTextChanged(Editable e) {}
         });
         favorites.setOnCheckedChangeListener((b, checked) -> reload());
-        add.setOnClickListener(v -> openEditor(new Note(0,"","","Pessoal",false,0,0)));
-        list.setOnItemClickListener((p,v,pos,id) -> openEditor(adapter.items.get(pos)));
-        list.setOnItemLongClickListener((p,v,pos,id) -> { showActions(adapter.items.get(pos)); return true; });
+        add.setOnClickListener(v -> {
+            if (trashMode) { trashMode = false; favorites.setEnabled(true); add.setText("+ Novo texto"); reload(); }
+            else openEditor(new Note(0,"","","Pessoal",false,0,0));
+        });
+        trash.setOnClickListener(v -> {
+            trashMode = !trashMode;
+            favorites.setEnabled(!trashMode);
+            favorites.setChecked(false);
+            add.setText(trashMode ? "← Voltar aos textos" : "+ Novo texto");
+            trash.setText(trashMode ? "Na lixeira" : "Lixeira");
+            reload();
+        });
+        backup.setOnClickListener(v -> createBackup());
+        restore.setOnClickListener(v -> chooseBackup());
+        list.setOnItemClickListener((p,v,pos,id) -> {
+            Note n = adapter.items.get(pos);
+            if (trashMode) showTrashActions(n); else openEditor(n);
+        });
+        list.setOnItemLongClickListener((p,v,pos,id) -> {
+            Note n = adapter.items.get(pos);
+            if (trashMode) showTrashActions(n); else showActions(n);
+            return true;
+        });
         return root;
     }
 
     private void reload() {
         if (db == null || search == null || favorites == null) return;
         adapter.items.clear();
-        adapter.items.addAll(db.search(search.getText().toString(), favorites.isChecked()));
+        if (trashMode) adapter.items.addAll(db.searchTrash(search.getText().toString()));
+        else adapter.items.addAll(db.search(search.getText().toString(), favorites.isChecked()));
         adapter.notifyDataSetChanged();
     }
 
@@ -104,133 +143,85 @@ public class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(18), dp(8), dp(18), 0);
-
-        EditText title = new EditText(this);
-        title.setHint("Título");
-        title.setText(note.title);
-        box.addView(title);
-
-        EditText category = new EditText(this);
-        category.setHint("Categoria");
-        category.setText(note.category);
-        box.addView(category);
-
-        CheckBox favorite = new CheckBox(this);
-        favorite.setText("Favorito");
-        favorite.setChecked(note.favorite);
-        box.addView(favorite);
-
-        EditText content = new EditText(this);
-        content.setHint("Digite ou cole seu texto aqui");
-        content.setGravity(Gravity.TOP);
-        content.setMinLines(10);
-        content.setText(note.content);
+        EditText title = new EditText(this); title.setHint("Título"); title.setText(note.title); box.addView(title);
+        EditText category = new EditText(this); category.setHint("Categoria"); category.setText(note.category); box.addView(category);
+        CheckBox favorite = new CheckBox(this); favorite.setText("Favorito"); favorite.setChecked(note.favorite); box.addView(favorite);
+        EditText content = new EditText(this); content.setHint("Digite ou cole seu texto aqui"); content.setGravity(Gravity.TOP); content.setMinLines(10); content.setText(note.content);
         box.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)));
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(note.id == 0 ? "Novo texto" : "Editar texto")
-                .setView(box)
-                .setPositiveButton("Salvar", null)
-                .setNegativeButton("Fechar", null)
-                .setNeutralButton("Compartilhar", null)
-                .create();
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(note.id == 0 ? "Novo texto" : "Editar texto").setView(box).setPositiveButton("Salvar", null).setNegativeButton("Fechar", null).setNeutralButton("Compartilhar", null).create();
         dialog.setOnShowListener(x -> {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                note.title = title.getText().toString();
-                note.category = category.getText().toString();
-                note.content = content.getText().toString();
-                note.favorite = favorite.isChecked();
-                if (note.title.trim().isEmpty() && note.content.trim().isEmpty()) {
-                    Toast.makeText(this,"Digite um título ou texto.",Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                db.save(note);
-                reload();
-                Toast.makeText(this,"Texto salvo.",Toast.LENGTH_SHORT).show();
-                dialog.dismiss();
+                note.title=title.getText().toString(); note.category=category.getText().toString(); note.content=content.getText().toString(); note.favorite=favorite.isChecked();
+                if(note.title.trim().isEmpty()&&note.content.trim().isEmpty()){Toast.makeText(this,"Digite um título ou texto.",Toast.LENGTH_SHORT).show();return;}
+                db.save(note); reload(); Toast.makeText(this,"Texto salvo.",Toast.LENGTH_SHORT).show(); dialog.dismiss();
             });
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> dialog.dismiss());
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> share(title.getText().toString(), content.getText().toString()));
-        });
-        dialog.show();
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> share(title.getText().toString(),content.getText().toString()));
+        }); dialog.show();
     }
 
     private void showActions(Note note) {
-        String fav = note.favorite ? "Remover dos favoritos" : "Adicionar aos favoritos";
-        String[] actions = {"Abrir", fav, "Copiar", "Compartilhar", "Duplicar", "Excluir"};
-        new AlertDialog.Builder(this).setTitle(note.title.isEmpty()?"Texto sem título":note.title)
-                .setItems(actions,(d,which)-> {
-                    if (which == 0) openEditor(note);
-                    else if (which == 1) { note.favorite=!note.favorite; db.save(note); reload(); }
-                    else if (which == 2) copy(note.content);
-                    else if (which == 3) share(note.title,note.content);
-                    else if (which == 4) { db.duplicate(note); reload(); Toast.makeText(this,"Cópia criada.",Toast.LENGTH_SHORT).show(); }
-                    else confirmDelete(note);
-                }).show();
+        String fav=note.favorite?"Remover dos favoritos":"Adicionar aos favoritos";
+        String[] actions={"Abrir",fav,"Copiar","Compartilhar","Duplicar","Mover para lixeira"};
+        new AlertDialog.Builder(this).setTitle(note.title.isEmpty()?"Texto sem título":note.title).setItems(actions,(d,which)->{
+            if(which==0)openEditor(note); else if(which==1){note.favorite=!note.favorite;db.save(note);reload();}
+            else if(which==2)copy(note.content); else if(which==3)share(note.title,note.content);
+            else if(which==4){db.duplicate(note);reload();Toast.makeText(this,"Cópia criada.",Toast.LENGTH_SHORT).show();}
+            else confirmTrash(note);
+        }).show();
     }
 
-    private void confirmDelete(Note note) {
-        new AlertDialog.Builder(this).setTitle("Excluir texto?")
-                .setMessage("Esta ação removerá o texto do aparelho.")
-                .setNegativeButton("Cancelar",null)
-                .setPositiveButton("Excluir",(d,w)-> { db.delete(note.id); reload(); Toast.makeText(this,"Texto excluído.",Toast.LENGTH_SHORT).show(); })
-                .show();
+    private void confirmTrash(Note note) {
+        new AlertDialog.Builder(this).setTitle("Mover para a lixeira?").setMessage("Você poderá restaurar este texto depois.").setNegativeButton("Cancelar",null).setPositiveButton("Mover",(d,w)->{db.moveToTrash(note.id);reload();Toast.makeText(this,"Texto movido para a lixeira.",Toast.LENGTH_SHORT).show();}).show();
     }
 
-    private void copy(String text) {
-        ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
-        cm.setPrimaryClip(ClipData.newPlainText("Texto",text));
-        Toast.makeText(this,"Texto copiado.",Toast.LENGTH_SHORT).show();
+    private void showTrashActions(Note note) {
+        new AlertDialog.Builder(this).setTitle(note.title.isEmpty()?"Texto sem título":note.title).setItems(new String[]{"Restaurar texto","Excluir definitivamente"},(d,w)->{
+            if(w==0){db.restore(note.id);reload();Toast.makeText(this,"Texto restaurado.",Toast.LENGTH_SHORT).show();}
+            else new AlertDialog.Builder(this).setTitle("Excluir definitivamente?").setMessage("Depois disso, o texto não poderá ser recuperado pela lixeira.").setNegativeButton("Cancelar",null).setPositiveButton("Excluir",(x,y)->{db.deletePermanently(note.id);reload();Toast.makeText(this,"Texto excluído definitivamente.",Toast.LENGTH_SHORT).show();}).show();
+        }).show();
     }
 
-    private void share(String title,String text) {
-        Intent i=new Intent(Intent.ACTION_SEND);
-        i.setType("text/plain");
-        i.putExtra(Intent.EXTRA_SUBJECT,title);
-        i.putExtra(Intent.EXTRA_TEXT,text);
-        startActivity(Intent.createChooser(i,"Compartilhar texto"));
+    private void createBackup() {
+        Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("application/json"); i.putExtra(Intent.EXTRA_TITLE,"backup-textos.json"); startActivityForResult(i,CREATE_BACKUP);
     }
 
-    private Button button(String text) {
-        Button b=new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(16);
-        b.setBackgroundColor(PRIMARY);
-        return b;
+    private void chooseBackup() {
+        new AlertDialog.Builder(this).setTitle("Restaurar backup?").setMessage("A restauração substituirá os textos atuais pelos textos do arquivo de backup. Faça um backup atual antes, se necessário.").setNegativeButton("Cancelar",null).setPositiveButton("Escolher arquivo",(d,w)->{
+            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("application/json"); startActivityForResult(i,OPEN_BACKUP);
+        }).show();
     }
 
-    private int dp(int v) { return Math.round(v*getResources().getDisplayMetrics().density); }
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
+        super.onActivityResult(requestCode,resultCode,data);
+        if(resultCode!=RESULT_OK||data==null||data.getData()==null)return;
+        Uri uri=data.getData();
+        try{
+            if(requestCode==CREATE_BACKUP){
+                try(OutputStream out=getContentResolver().openOutputStream(uri,"w")){out.write(db.exportJson().getBytes(StandardCharsets.UTF_8));}
+                Toast.makeText(this,"Backup salvo com sucesso.",Toast.LENGTH_LONG).show();
+            }else if(requestCode==OPEN_BACKUP){
+                StringBuilder s=new StringBuilder();
+                try(BufferedReader r=new BufferedReader(new InputStreamReader(getContentResolver().openInputStream(uri),StandardCharsets.UTF_8))){String line;while((line=r.readLine())!=null)s.append(line).append('\n');}
+                int count=db.importJson(s.toString()); trashMode=false; favorites.setEnabled(true); reload();
+                Toast.makeText(this,count+" textos restaurados.",Toast.LENGTH_LONG).show();
+            }
+        }catch(Exception e){Toast.makeText(this,"Não foi possível concluir: "+e.getMessage(),Toast.LENGTH_LONG).show();}
+    }
+
+    private void copy(String text){ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("Texto",text));Toast.makeText(this,"Texto copiado.",Toast.LENGTH_SHORT).show();}
+    private void share(String title,String text){Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_SUBJECT,title);i.putExtra(Intent.EXTRA_TEXT,text);startActivity(Intent.createChooser(i,"Compartilhar texto"));}
+    private Button button(String text){Button b=new Button(this);b.setText(text);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setTextSize(16);b.setBackgroundColor(PRIMARY);return b;}
+    private Button smallButton(String text){Button b=button(text);b.setTextSize(13);return b;}
+    private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}
 
     private class NoteAdapter extends BaseAdapter {
-        final List<Note> items=new ArrayList<>();
-        public int getCount(){return items.size();}
-        public Object getItem(int p){return items.get(p);}
-        public long getItemId(int p){return items.get(p).id;}
+        final List<Note> items=new ArrayList<>(); public int getCount(){return items.size();} public Object getItem(int p){return items.get(p);} public long getItemId(int p){return items.get(p).id;}
         public View getView(int p,View cv,ViewGroup parent){
-            Note n=items.get(p);
-            LinearLayout row=new LinearLayout(MainActivity.this);
-            row.setOrientation(LinearLayout.VERTICAL);
-            row.setPadding(dp(14),dp(12),dp(14),dp(12));
-            row.setBackgroundColor(Color.WHITE);
-            TextView t=new TextView(MainActivity.this);
-            String name=n.title.trim().isEmpty()?"Texto sem título":n.title.trim();
-            t.setText((n.favorite?"★  ":"")+name);
-            t.setTextSize(18); t.setTypeface(Typeface.DEFAULT,Typeface.BOLD); t.setTextColor(Color.rgb(32,33,36));
-            row.addView(t);
-            if(!n.content.trim().isEmpty()){
-                TextView preview=new TextView(MainActivity.this);
-                String s=n.content.replace('\n',' ').trim(); if(s.length()>110)s=s.substring(0,110)+"…";
-                preview.setText(s); preview.setTextSize(14); preview.setTextColor(Color.DKGRAY); preview.setPadding(0,dp(4),0,dp(4));
-                row.addView(preview);
-            }
-            TextView meta=new TextView(MainActivity.this);
-            String cat=n.category.trim().isEmpty()?"Sem categoria":n.category;
-            meta.setText(cat+" • "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(n.updatedAt)));
-            meta.setTextSize(12); meta.setTextColor(Color.GRAY);
-            row.addView(meta);
-            return row;
+            Note n=items.get(p); LinearLayout row=new LinearLayout(MainActivity.this); row.setOrientation(LinearLayout.VERTICAL); row.setPadding(dp(14),dp(12),dp(14),dp(12)); row.setBackgroundColor(Color.WHITE);
+            TextView t=new TextView(MainActivity.this); String name=n.title.trim().isEmpty()?"Texto sem título":n.title.trim(); t.setText((!trashMode&&n.favorite?"★  ":"")+name); t.setTextSize(18);t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);t.setTextColor(Color.rgb(32,33,36));row.addView(t);
+            if(!n.content.trim().isEmpty()){TextView preview=new TextView(MainActivity.this);String s=n.content.replace('\n',' ').trim();if(s.length()>110)s=s.substring(0,110)+"…";preview.setText(s);preview.setTextSize(14);preview.setTextColor(Color.DKGRAY);preview.setPadding(0,dp(4),0,dp(4));row.addView(preview);}
+            TextView meta=new TextView(MainActivity.this);String cat=n.category.trim().isEmpty()?"Sem categoria":n.category;meta.setText((trashMode?"Lixeira • ":"")+cat+" • "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(n.updatedAt)));meta.setTextSize(12);meta.setTextColor(Color.GRAY);row.addView(meta);return row;
         }
     }
 }
