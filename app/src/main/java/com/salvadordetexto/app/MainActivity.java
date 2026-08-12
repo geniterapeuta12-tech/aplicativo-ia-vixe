@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.rgb(247,248,252));
 
         TextView title = new TextView(this);
-        title.setText("Salvador de Texto");
+        title.setText("Script Guard");
         title.setTextSize(26);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setTextColor(Color.rgb(32,33,36));
@@ -183,7 +183,7 @@ public class MainActivity extends Activity {
     }
 
     private void createBackup() {
-        Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("application/json"); i.putExtra(Intent.EXTRA_TITLE,"backup-textos.json"); startActivityForResult(i,CREATE_BACKUP);
+        Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("application/json"); i.putExtra(Intent.EXTRA_TITLE,"script-guard-backup.json"); startActivityForResult(i,CREATE_BACKUP);
     }
 
     private void chooseBackup() {
