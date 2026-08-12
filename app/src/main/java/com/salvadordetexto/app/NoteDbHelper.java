@@ -12,7 +12,7 @@ import java.util.List;
 
 public class NoteDbHelper extends SQLiteOpenHelper {
     private static final String DB_NAME = "salvador_texto.db";
-    private static final int DB_VERSION = 5;
+    private static final int DB_VERSION = 6;
 
     public NoteDbHelper(Context context) { super(context, DB_NAME, null, DB_VERSION); }
 
@@ -20,6 +20,7 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL DEFAULT '',content TEXT NOT NULL DEFAULT '',category TEXT NOT NULL DEFAULT '',favorite INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,deleted_at INTEGER NOT NULL DEFAULT 0)");
         db.execSQL("CREATE INDEX idx_notes_updated ON notes(updated_at DESC)");
         createListsTable(db);
+        createHiddenTable(db);
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
@@ -31,15 +32,18 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         if (oldVersion < 4) createListsTable(db);
         if (oldVersion < 5) {
             createListsTable(db);
-            // Remove de verdade as listas que vinham prontas nas versões antigas.
-            // Os textos continuam intactos; apenas deixam de ficar presos a uma lista padrão.
             db.execSQL("UPDATE notes SET category='' WHERE LOWER(TRIM(category)) IN ('pessoal','trabalho','estudos','clientes','ideias')");
             db.execSQL("DELETE FROM lists WHERE LOWER(TRIM(name)) IN ('pessoal','trabalho','estudos','clientes','ideias')");
         }
+        if (oldVersion < 6) createHiddenTable(db);
     }
 
     private void createListsTable(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS lists (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE COLLATE NOCASE)");
+    }
+
+    private void createHiddenTable(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS hidden_notes (note_id INTEGER PRIMARY KEY)");
     }
 
     private boolean isLegacyDefault(String name) {
@@ -86,6 +90,24 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         return out;
     }
 
+    public void hide(long id) {
+        if (id <= 0) return;
+        ContentValues v = new ContentValues();
+        v.put("note_id", id);
+        getWritableDatabase().insertWithOnConflict("hidden_notes", null, v, SQLiteDatabase.CONFLICT_IGNORE);
+    }
+
+    public void unhide(long id) {
+        getWritableDatabase().delete("hidden_notes", "note_id=?", new String[]{String.valueOf(id)});
+    }
+
+    public boolean isHidden(long id) {
+        if (id <= 0) return false;
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT 1 FROM hidden_notes WHERE note_id=? LIMIT 1", new String[]{String.valueOf(id)})) {
+            return c.moveToFirst();
+        }
+    }
+
     public void moveToTrash(long id) {
         ContentValues v = new ContentValues();
         v.put("deleted_at", System.currentTimeMillis());
@@ -99,8 +121,17 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         getWritableDatabase().update("notes", v, "id=?", new String[]{String.valueOf(id)});
     }
 
-    public void deletePermanently(long id) { getWritableDatabase().delete("notes", "id=?", new String[]{String.valueOf(id)}); }
-    public void emptyTrash() { getWritableDatabase().delete("notes", "deleted_at>0", null); }
+    public void deletePermanently(long id) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.delete("hidden_notes", "note_id=?", new String[]{String.valueOf(id)});
+        db.delete("notes", "id=?", new String[]{String.valueOf(id)});
+    }
+
+    public void emptyTrash() {
+        SQLiteDatabase db = getWritableDatabase();
+        db.execSQL("DELETE FROM hidden_notes WHERE note_id IN (SELECT id FROM notes WHERE deleted_at>0)");
+        db.delete("notes", "deleted_at>0", null);
+    }
 
     public Note duplicate(Note source) {
         Note copy = new Note(0, source.title.isEmpty() ? "Cópia" : source.title + " (cópia)", source.content, source.category, false, 0, 0);
@@ -108,18 +139,23 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         return copy;
     }
 
-    public List<Note> search(String query, boolean favoritesOnly) { return queryNotes(query, favoritesOnly, false, null); }
-    public List<Note> search(String query, boolean favoritesOnly, String listName) { return queryNotes(query, favoritesOnly, false, listName); }
-    public List<Note> searchTrash(String query) { return queryNotes(query, false, true, null); }
+    public List<Note> search(String query, boolean favoritesOnly) { return queryNotes(query, favoritesOnly, false, false, null); }
+    public List<Note> search(String query, boolean favoritesOnly, String listName) { return queryNotes(query, favoritesOnly, false, false, listName); }
+    public List<Note> searchHidden(String query) { return queryNotes(query, false, false, true, null); }
+    public List<Note> searchTrash(String query) { return queryNotes(query, false, true, false, null); }
 
-    private List<Note> queryNotes(String query, boolean favoritesOnly, boolean trash, String listName) {
+    private List<Note> queryNotes(String query, boolean favoritesOnly, boolean trash, boolean hiddenOnly, String listName) {
         SQLiteDatabase db = getReadableDatabase();
         List<Note> out = new ArrayList<>();
         String q = query == null ? "" : query.trim();
         StringBuilder where = new StringBuilder(trash ? "deleted_at>0" : "deleted_at=0");
         List<String> args = new ArrayList<>();
-        if (favoritesOnly && !trash) where.append(" AND favorite=1");
-        if (!trash && listName != null && !listName.trim().isEmpty()) {
+        if (!trash) {
+            if (hiddenOnly) where.append(" AND id IN (SELECT note_id FROM hidden_notes)");
+            else where.append(" AND id NOT IN (SELECT note_id FROM hidden_notes)");
+        }
+        if (favoritesOnly && !trash && !hiddenOnly) where.append(" AND favorite=1");
+        if (!trash && !hiddenOnly && listName != null && !listName.trim().isEmpty()) {
             where.append(" AND category=? COLLATE NOCASE");
             args.add(listName.trim());
         }
@@ -143,11 +179,13 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         SQLiteDatabase db = getReadableDatabase();
         try (Cursor c = db.query("notes", null, null, null, null, null, "id ASC")) {
             while (c.moveToNext()) {
+                long id = c.getLong(c.getColumnIndexOrThrow("id"));
                 JSONObject o = new JSONObject();
                 o.put("title", c.getString(c.getColumnIndexOrThrow("title")));
                 o.put("content", c.getString(c.getColumnIndexOrThrow("content")));
                 o.put("category", c.getString(c.getColumnIndexOrThrow("category")));
                 o.put("favorite", c.getInt(c.getColumnIndexOrThrow("favorite")) == 1);
+                o.put("hidden", isHidden(id));
                 o.put("createdAt", c.getLong(c.getColumnIndexOrThrow("created_at")));
                 o.put("updatedAt", c.getLong(c.getColumnIndexOrThrow("updated_at")));
                 o.put("deletedAt", c.getLong(c.getColumnIndexOrThrow("deleted_at")));
@@ -171,6 +209,7 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         SQLiteDatabase db = getWritableDatabase();
         db.beginTransaction();
         try {
+            db.delete("hidden_notes", null, null);
             db.delete("notes", null, null);
             db.delete("lists", null, null);
             JSONArray lists = root.optJSONArray("lists");
@@ -195,7 +234,11 @@ public class NoteDbHelper extends SQLiteOpenHelper {
                 v.put("created_at", o.optLong("createdAt", System.currentTimeMillis()));
                 v.put("updated_at", o.optLong("updatedAt", System.currentTimeMillis()));
                 v.put("deleted_at", o.optLong("deletedAt", 0));
-                db.insertOrThrow("notes", null, v);
+                long newId = db.insertOrThrow("notes", null, v);
+                if (o.optBoolean("hidden", false)) {
+                    ContentValues hv = new ContentValues(); hv.put("note_id", newId);
+                    db.insertWithOnConflict("hidden_notes", null, hv, SQLiteDatabase.CONFLICT_IGNORE);
+                }
                 if (!category.isEmpty()) {
                     ContentValues lv=new ContentValues(); lv.put("name",category);
                     db.insertWithOnConflict("lists",null,lv,SQLiteDatabase.CONFLICT_IGNORE);
