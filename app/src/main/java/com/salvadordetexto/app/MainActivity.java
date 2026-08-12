@@ -13,8 +13,10 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.ArrayAdapter;
 import android.widget.BaseAdapter;
 import android.widget.Button;
@@ -50,7 +52,11 @@ public class MainActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         db = new NoteDbHelper(this);
-        setContentView(buildUi());
+        View ui = buildUi();
+        setContentView(ui);
+        ui.setAlpha(0f);
+        ui.setTranslationY(dp(10));
+        ui.animate().alpha(1f).translationY(0f).setDuration(320).setInterpolator(new DecelerateInterpolator()).start();
         reload();
     }
 
@@ -120,7 +126,7 @@ public class MainActivity extends Activity {
                 listFilterButton.setEnabled(true);
                 add.setText("+ Novo texto");
                 reload();
-            } else openEditor(new Note(0,"","", selectedList == null ? "Pessoal" : selectedList,false,0,0));
+            } else openEditor(new Note(0,"","", selectedList == null ? "" : selectedList,false,0,0));
         });
         trash.setOnClickListener(v -> {
             trashMode = !trashMode;
@@ -134,8 +140,9 @@ public class MainActivity extends Activity {
         backup.setOnClickListener(v -> createBackup());
         restore.setOnClickListener(v -> chooseBackup());
         list.setOnItemClickListener((p,v,pos,id) -> {
+            pulse(v);
             Note n = adapter.items.get(pos);
-            if (trashMode) showTrashActions(n); else openEditor(n);
+            v.postDelayed(() -> { if (trashMode) showTrashActions(n); else openEditor(n); }, 90);
         });
         list.setOnItemLongClickListener((p,v,pos,id) -> {
             Note n = adapter.items.get(pos);
@@ -190,6 +197,10 @@ public class MainActivity extends Activity {
         if (trashMode) adapter.items.addAll(db.searchTrash(search.getText().toString()));
         else adapter.items.addAll(db.search(search.getText().toString(), favorites.isChecked(), selectedList));
         adapter.notifyDataSetChanged();
+        if (list != null) {
+            list.setAlpha(0f);
+            list.animate().alpha(1f).setDuration(180).start();
+        }
     }
 
     private void openEditor(Note note) {
@@ -199,14 +210,15 @@ public class MainActivity extends Activity {
         EditText title = new EditText(this); title.setHint("Título"); title.setText(note.title); box.addView(title);
 
         TextView listLabel = new TextView(this); listLabel.setText("Lista"); listLabel.setTextSize(13); listLabel.setTextColor(Color.DKGRAY); listLabel.setPadding(0,dp(6),0,0); box.addView(listLabel);
-        List<String> lists = new ArrayList<>(db.getLists());
+        List<String> lists = new ArrayList<>();
+        lists.add("Sem lista");
+        lists.addAll(db.getLists());
         if (note.category != null && !note.category.trim().isEmpty() && !containsIgnoreCase(lists,note.category.trim())) lists.add(note.category.trim());
-        if (lists.isEmpty()) lists.add("Pessoal");
         Spinner spinner = new Spinner(this);
         ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, lists);
         spinner.setAdapter(spinnerAdapter);
         int selected = 0;
-        for (int i=0;i<lists.size();i++) if (note.category != null && lists.get(i).equalsIgnoreCase(note.category.trim())) { selected=i; break; }
+        for (int i=1;i<lists.size();i++) if (note.category != null && lists.get(i).equalsIgnoreCase(note.category.trim())) { selected=i; break; }
         spinner.setSelection(selected);
         box.addView(spinner);
 
@@ -218,6 +230,8 @@ public class MainActivity extends Activity {
 
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle(note.id == 0 ? "Novo texto" : "Editar texto").setView(box).setPositiveButton("Salvar", null).setNegativeButton("Fechar", null).setNeutralButton("Compartilhar", null).create();
         dialog.setOnShowListener(x -> {
+            View decor = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
+            if (decor != null) { decor.setAlpha(0f); decor.setScaleX(.97f); decor.setScaleY(.97f); decor.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(180).start(); }
             newList.setOnClickListener(v -> {
                 EditText input = new EditText(this); input.setHint("Nome da nova lista");
                 new AlertDialog.Builder(this).setTitle("Criar lista").setView(input).setNegativeButton("Cancelar",null).setPositiveButton("Criar",(a,b)->{
@@ -228,7 +242,10 @@ public class MainActivity extends Activity {
                 }).show();
             });
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                note.title=title.getText().toString(); note.category=(String)spinner.getSelectedItem(); note.content=content.getText().toString(); note.favorite=favorite.isChecked();
+                note.title=title.getText().toString();
+                String chosen=(String)spinner.getSelectedItem();
+                note.category="Sem lista".equals(chosen)?"":chosen;
+                note.content=content.getText().toString(); note.favorite=favorite.isChecked();
                 if(note.title.trim().isEmpty()&&note.content.trim().isEmpty()){Toast.makeText(this,"Digite um título ou texto.",Toast.LENGTH_SHORT).show();return;}
                 db.save(note); reload(); Toast.makeText(this,"Texto salvo.",Toast.LENGTH_SHORT).show(); dialog.dismiss();
             });
@@ -293,8 +310,19 @@ public class MainActivity extends Activity {
 
     private void copy(String text){ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("Texto",text));Toast.makeText(this,"Texto copiado.",Toast.LENGTH_SHORT).show();}
     private void share(String title,String text){Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_SUBJECT,title);i.putExtra(Intent.EXTRA_TEXT,text);startActivity(Intent.createChooser(i,"Compartilhar texto"));}
-    private Button button(String text){Button b=new Button(this);b.setText(text);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setTextSize(16);b.setBackgroundColor(PRIMARY);return b;}
+
+    private Button button(String text){
+        Button b=new Button(this);b.setText(text);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setTextSize(16);b.setBackgroundColor(PRIMARY);addPressEffect(b);return b;
+    }
     private Button smallButton(String text){Button b=button(text);b.setTextSize(13);return b;}
+    private void addPressEffect(View v){
+        v.setOnTouchListener((view,event)->{
+            if(event.getAction()==MotionEvent.ACTION_DOWN) view.animate().scaleX(.96f).scaleY(.96f).setDuration(70).start();
+            else if(event.getAction()==MotionEvent.ACTION_UP||event.getAction()==MotionEvent.ACTION_CANCEL) view.animate().scaleX(1f).scaleY(1f).setDuration(110).start();
+            return false;
+        });
+    }
+    private void pulse(View v){v.animate().scaleX(.985f).scaleY(.985f).setDuration(70).withEndAction(()->v.animate().scaleX(1f).scaleY(1f).setDuration(100).start()).start();}
     private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}
 
     private class NoteAdapter extends BaseAdapter {
@@ -303,7 +331,9 @@ public class MainActivity extends Activity {
             Note n=items.get(p); LinearLayout row=new LinearLayout(MainActivity.this); row.setOrientation(LinearLayout.VERTICAL); row.setPadding(dp(14),dp(12),dp(14),dp(12)); row.setBackgroundColor(Color.WHITE);
             TextView t=new TextView(MainActivity.this); String name=n.title.trim().isEmpty()?"Texto sem título":n.title.trim(); t.setText((!trashMode&&n.favorite?"★  ":"")+name); t.setTextSize(18);t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);t.setTextColor(Color.rgb(32,33,36));row.addView(t);
             if(!n.content.trim().isEmpty()){TextView preview=new TextView(MainActivity.this);String s=n.content.replace('\n',' ').trim();if(s.length()>110)s=s.substring(0,110)+"…";preview.setText(s);preview.setTextSize(14);preview.setTextColor(Color.DKGRAY);preview.setPadding(0,dp(4),0,dp(4));row.addView(preview);}
-            TextView meta=new TextView(MainActivity.this);String cat=n.category.trim().isEmpty()?"Sem lista":n.category;meta.setText((trashMode?"Lixeira • ":"")+cat+" • "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(n.updatedAt)));meta.setTextSize(12);meta.setTextColor(Color.GRAY);row.addView(meta);return row;
+            TextView meta=new TextView(MainActivity.this);String cat=n.category.trim().isEmpty()?"Sem lista":n.category;meta.setText((trashMode?"Lixeira • ":"")+cat+" • "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(n.updatedAt)));meta.setTextSize(12);meta.setTextColor(Color.GRAY);row.addView(meta);
+            row.setAlpha(0f);row.setTranslationY(dp(8));row.animate().alpha(1f).translationY(0f).setStartDelay(Math.min(p*25,150)).setDuration(180).start();
+            return row;
         }
     }
 }
