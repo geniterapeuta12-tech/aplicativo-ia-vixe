@@ -12,7 +12,7 @@ import java.util.List;
 
 public class NoteDbHelper extends SQLiteOpenHelper {
     private static final String DB_NAME = "salvador_texto.db";
-    private static final int DB_VERSION = 3;
+    private static final int DB_VERSION = 4;
 
     public NoteDbHelper(Context context) { super(context, DB_NAME, null, DB_VERSION); }
 
@@ -20,29 +20,22 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL DEFAULT '',content TEXT NOT NULL DEFAULT '',category TEXT NOT NULL DEFAULT '',favorite INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,deleted_at INTEGER NOT NULL DEFAULT 0)");
         db.execSQL("CREATE INDEX idx_notes_updated ON notes(updated_at DESC)");
         createListsTable(db);
-        seedLists(db);
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         if (oldVersion < 2) db.execSQL("ALTER TABLE notes ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0");
         if (oldVersion < 3) {
             createListsTable(db);
-            seedLists(db);
             db.execSQL("INSERT OR IGNORE INTO lists(name) SELECT DISTINCT TRIM(category) FROM notes WHERE TRIM(category)<>''");
+        }
+        if (oldVersion < 4) {
+            createListsTable(db);
+            db.execSQL("DELETE FROM lists WHERE name IN ('Pessoal','Trabalho','Estudos','Clientes','Ideias') AND name NOT IN (SELECT DISTINCT TRIM(category) FROM notes WHERE TRIM(category)<>'')");
         }
     }
 
     private void createListsTable(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS lists (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE COLLATE NOCASE)");
-    }
-
-    private void seedLists(SQLiteDatabase db) {
-        String[] defaults = {"Pessoal","Trabalho","Estudos","Clientes","Ideias"};
-        for (String name : defaults) {
-            ContentValues v = new ContentValues();
-            v.put("name", name);
-            db.insertWithOnConflict("lists", null, v, SQLiteDatabase.CONFLICT_IGNORE);
-        }
     }
 
     public long save(Note note) {
@@ -171,12 +164,11 @@ public class NoteDbHelper extends SQLiteOpenHelper {
         try {
             db.delete("notes", null, null);
             db.delete("lists", null, null);
-            seedLists(db);
             JSONArray lists = root.optJSONArray("lists");
             if (lists != null) {
                 for (int i=0;i<lists.length();i++) {
-                    ContentValues lv=new ContentValues(); lv.put("name",lists.optString(i,""));
-                    if(!lists.optString(i,"").trim().isEmpty()) db.insertWithOnConflict("lists",null,lv,SQLiteDatabase.CONFLICT_IGNORE);
+                    String name=lists.optString(i,"").trim();
+                    if(!name.isEmpty()){ContentValues lv=new ContentValues();lv.put("name",name);db.insertWithOnConflict("lists",null,lv,SQLiteDatabase.CONFLICT_IGNORE);}
                 }
             }
             for (int i = 0; i < notes.length(); i++) {
