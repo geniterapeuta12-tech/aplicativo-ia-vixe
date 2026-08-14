@@ -14,12 +14,6 @@ android {
         versionName '1.0-ui'
     }
 
-    sourceSets {
-        debug {
-            manifest.srcFile 'src/debug2/AndroidManifest.xml'
-        }
-    }
-
     buildTypes {
         release {
             minifyEnabled false
