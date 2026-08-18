@@ -38,6 +38,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Script-Guard-1.6-Ocultos-Configuracoes
+          name: Script-Guard-1.7-Senha-Ocultos
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
