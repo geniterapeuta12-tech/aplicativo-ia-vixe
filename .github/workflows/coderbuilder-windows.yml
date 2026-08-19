@@ -1,0 +1,46 @@
+name: Build CoderBuilder 2.0 Windows
+
+on:
+  push:
+    branches: [coderbuilder-v2-alpha]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: html-builder/desktop-v2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: html-builder/desktop-v2/package.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate icon
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pillow
+          python make_icon.py
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Windows EXE
+        run: npm run build:win
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoderBuilder_2.0.0-alpha.1_Windows
+          path: html-builder/desktop-v2/dist/*.exe
