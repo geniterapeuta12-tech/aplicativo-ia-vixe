@@ -1,13 +1,18 @@
-# CoderBuilder 2.0.0-alpha.1
+# CoderBuilder 2.1.0-alpha.1
 
-Status: installable alpha build.
+Status: active development / test build.
 
-Included:
+Included in this version:
 - official dark navy + blue/cyan interface standard;
-- functional desktop editor with live preview;
-- Windows save dialog and open-in-default-browser flow;
-- Android editor redesign with CoderBuilder launcher icon;
-- HTML live preview;
-- save `.html` and open-in-browser flow;
-- automated APK and Windows EXE builds;
-- previous stable version preserved.
+- corrected live HTML preview;
+- fullscreen preview on Android and Windows;
+- automatic project saving while typing;
+- saved projects screen;
+- recent/exported HTML history;
+- three-dot menu for files, downloads and settings;
+- rename, duplicate and delete project actions;
+- editor settings for font size and line wrapping;
+- optional automatic preview refresh;
+- configurable export folder on Windows;
+- keyboard shortcuts on Windows: Ctrl+S, Ctrl+Shift+S and F9;
+- previous 2.0 alpha preserved separately.
