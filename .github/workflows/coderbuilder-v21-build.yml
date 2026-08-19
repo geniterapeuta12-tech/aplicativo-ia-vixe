@@ -3,6 +3,8 @@ name: CoderBuilder 2.1 Build
 on:
   push:
     branches: [coderbuilder-v2.1-alpha]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
