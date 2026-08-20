@@ -2,6 +2,8 @@ const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
+const CLOUD_SCRIPT = 'https://whtjqfdhhtahcuazzgee.supabase.co/functions/v1/coderbuilder-cloud-client';
+
 function safeName(name) {
   let value = String(name || 'pagina.html').trim();
   if (!/\.html?$/i.test(value)) value += '.html';
@@ -15,7 +17,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 650,
     backgroundColor: '#07111F',
-    title: 'CoderBuilder 2.3',
+    title: 'CoderBuilder 2.5',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -24,6 +26,12 @@ function createWindow() {
       sandbox: true
     }
   });
+
+  win.webContents.on('did-finish-load', () => {
+    const src = JSON.stringify(CLOUD_SCRIPT);
+    win.webContents.executeJavaScript(`(function(){if(document.getElementById('cb-cloud-v25'))return;var s=document.createElement('script');s.id='cb-cloud-v25';s.src=${src};s.async=true;document.body.appendChild(s);})();`).catch(() => {});
+  });
+
   win.loadFile('index.html');
 }
 
@@ -50,7 +58,7 @@ ipcMain.handle('save-html', async (_event, payload) => {
 ipcMain.handle('open-html', async (_event, payload) => {
   try {
     const name = safeName(payload?.name);
-    const folder = path.join(app.getPath('temp'), 'CoderBuilder-2.3');
+    const folder = path.join(app.getPath('temp'), 'CoderBuilder-2.5');
     fs.mkdirSync(folder, { recursive: true });
     const file = path.join(folder, name);
     fs.writeFileSync(file, String(payload?.html || ''), 'utf8');
