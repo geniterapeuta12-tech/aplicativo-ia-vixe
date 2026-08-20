@@ -6,6 +6,14 @@ on:
       - livres-para-adorar-v4-build
     paths:
       - 'lpa_v4_android/**'
+      - 'lpa_v4_desktop/**'
+      - '.github/workflows/livres-para-adorar-v4-build.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'lpa_v4_android/**'
+      - 'lpa_v4_desktop/**'
       - '.github/workflows/livres-para-adorar-v4-build.yml'
   workflow_dispatch:
 
@@ -38,4 +46,27 @@ jobs:
         with:
           name: Livres-Para-Adorar-v4-Android
           path: Livres_Para_Adorar_v4_Android.apk
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Prepare embedded web app
+        shell: pwsh
+        run: |
+          node -e "const fs=require('fs'),z=require('zlib');fs.writeFileSync('lpa_v4_desktop/index.html',z.gunzipSync(Buffer.from(fs.readFileSync('lpa_v4_android/app_source/index.html.gz.b64','utf8').trim(),'base64')))"
+      - name: Install desktop dependencies
+        working-directory: lpa_v4_desktop
+        run: npm install
+      - name: Build Windows EXE
+        working-directory: lpa_v4_desktop
+        run: npm run build:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Livres-Para-Adorar-v4-Windows
+          path: lpa_v4_desktop/dist/Livres_Para_Adorar_v4_Windows.exe
           if-no-files-found: error
