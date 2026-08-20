@@ -1,6 +1,6 @@
 {
   "name": "coderbuilder-desktop-v3",
-  "version": "2.4.0-alpha.1",
+  "version": "2.5.0-alpha.1",
   "private": true,
   "description": "CoderBuilder desktop — Cole. Crie. Execute.",
   "main": "main.js",
@@ -22,6 +22,6 @@
       "target": [{"target": "portable", "arch": ["x64"]}],
       "icon": "build/icon.ico"
     },
-    "artifactName": "CoderBuilder_2.4.0-alpha.1_Windows.${ext}"
+    "artifactName": "CoderBuilder_2.5.0-alpha.1_Windows.${ext}"
   }
 }
