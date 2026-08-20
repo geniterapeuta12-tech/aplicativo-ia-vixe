@@ -1,0 +1,23 @@
+{
+  "name": "livres-para-adorar",
+  "version": "4.0.0-test",
+  "description": "Livres para Adorar - biblioteca de vídeos da igreja",
+  "main": "main.js",
+  "scripts": {
+    "build:win": "electron-builder --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.livresparaadorar.desktop",
+    "productName": "Livres Para Adorar",
+    "asar": true,
+    "files": ["main.js", "index.html"],
+    "win": {
+      "target": [{"target":"portable","arch":["x64"]}],
+      "artifactName": "Livres_Para_Adorar_v4_Windows.exe"
+    }
+  }
+}
