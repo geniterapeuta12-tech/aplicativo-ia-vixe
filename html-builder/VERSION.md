@@ -1,25 +1,21 @@
-# CoderBuilder 2.2.0-alpha.1
+# CoderBuilder 2.3.0-alpha.1
 
 Status: active development / test build.
 
-Included in this version:
-- official dark navy + blue/cyan interface standard;
-- corrected live HTML preview;
-- fullscreen preview on Android and Windows;
-- preview tools hidden behind a compact ☰ menu;
-- preview zoom from 50% to 200%;
-- preview device modes: automatic, portrait (em pé), landscape (deitado) and tablet on desktop;
-- automatic project saving while typing;
-- project lists for organization (Geral, Sites, Estudos, Templates and user-created lists);
-- move projects between lists;
-- saved projects screen;
-- automatic project version history with up to 20 snapshots per project;
-- preview, restore or duplicate an old version;
-- recent/exported HTML history;
-- three-dot menu for projects, downloads and settings;
-- rename, duplicate and delete project actions;
-- editor settings for font size and line wrapping;
-- optional automatic preview refresh;
-- automatic version history toggle;
-- keyboard shortcuts on Windows: Ctrl+S, Ctrl+Shift+S, F9 and Ctrl+0;
-- previous 2.1 alpha preserved separately.
+Focus of this version:
+- complete mobile UI redesign using CoderBuilder-owned HTML/CSS/JS components;
+- remove Android PopupMenu and AlertDialog from the main product experience;
+- shared visual language between Android and Windows;
+- custom vector icon sprite for menus, projects, preview and settings;
+- custom three-dot menu with project, export, settings, new project and about sections;
+- custom preview toolbar with zoom, portrait, landscape, automatic mode, refresh, fullscreen and browser actions;
+- project lists and saved projects;
+- automatic version history with up to 20 snapshots per project;
+- restore or duplicate old versions;
+- project protection: direct project deletion is removed; projects can be archived and restored instead;
+- custom settings panel for autosave, line wrapping, editor font size, automatic preview and automatic versions;
+- HTML export still uses the native Android document picker when writing the final file;
+- Windows 2.3 uses the same shared interface inside a new Electron shell;
+- previous 2.2 alpha preserved separately.
+
+Branch: `coderbuilder-v2.3-alpha`
