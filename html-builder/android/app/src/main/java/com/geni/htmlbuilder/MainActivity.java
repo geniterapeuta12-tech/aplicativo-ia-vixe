@@ -18,8 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
-    private static final int REQ_EXPORT = 2301;
-
+    private static final int REQ_EXPORT = 2401;
     private WebView webView;
     private String pendingHtml = "";
     private String pendingName = "pagina.html";
@@ -30,12 +29,10 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(Color.rgb(4, 10, 19));
         getWindow().setNavigationBarColor(Color.rgb(4, 10, 19));
-
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(7, 17, 31));
         webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient());
-
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -46,7 +43,6 @@ public class MainActivity extends Activity {
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(false);
         settings.setMediaPlaybackRequiresUserGesture(false);
-
         webView.addJavascriptInterface(new NativeBridge(), "CoderBuilderNative");
         webView.loadUrl("file:///android_asset/coderbuilder.html");
         setContentView(webView);
@@ -64,7 +60,6 @@ public class MainActivity extends Activity {
         pendingName = safeName(name);
         pendingHtml = html == null ? "" : html;
         pendingOpen = openAfter;
-
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("text/html");
@@ -78,15 +73,12 @@ public class MainActivity extends Activity {
         if (requestCode != REQ_EXPORT || resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
         if (uri == null) return;
-
         try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
             if (out == null) throw new Exception("Não foi possível criar o arquivo.");
             out.write(pendingHtml.getBytes(StandardCharsets.UTF_8));
             out.flush();
             Toast.makeText(this, "HTML exportado com sucesso.", Toast.LENGTH_SHORT).show();
-            if (webView != null) {
-                webView.evaluateJavascript("window.CoderBuilderApp && window.CoderBuilderApp.onNativeExportSuccess && window.CoderBuilderApp.onNativeExportSuccess()", null);
-            }
+            if (webView != null) webView.evaluateJavascript("window.CoderBuilderApp&&window.CoderBuilderApp.onNativeExportSuccess&&window.CoderBuilderApp.onNativeExportSuccess()", null);
             if (pendingOpen) openInBrowser(uri);
         } catch (Exception e) {
             Toast.makeText(this, "Erro ao exportar: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -97,48 +89,25 @@ public class MainActivity extends Activity {
         Intent view = new Intent(Intent.ACTION_VIEW);
         view.setDataAndType(uri, "text/html");
         view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try {
-            startActivity(Intent.createChooser(view, "Abrir HTML com"));
-        } catch (ActivityNotFoundException e) {
-            Toast.makeText(this, "Arquivo salvo. Abra-o pelo app Arquivos usando seu navegador.", Toast.LENGTH_LONG).show();
-        }
+        try { startActivity(Intent.createChooser(view, "Abrir HTML com")); }
+        catch (ActivityNotFoundException e) { Toast.makeText(this, "Arquivo salvo. Abra-o pelo app Arquivos usando seu navegador.", Toast.LENGTH_LONG).show(); }
     }
 
     @Override
     public void onBackPressed() {
-        if (webView == null) {
-            super.onBackPressed();
-            return;
-        }
-        webView.evaluateJavascript("window.CoderBuilderApp && window.CoderBuilderApp.handleBack ? window.CoderBuilderApp.handleBack() : false", value -> {
-            if (!"true".equals(value)) super.onBackPressed();
-        });
+        if (webView == null) { super.onBackPressed(); return; }
+        webView.evaluateJavascript("window.CoderBuilderApp&&window.CoderBuilderApp.handleBack?window.CoderBuilderApp.handleBack():false", value -> { if (!"true".equals(value)) super.onBackPressed(); });
     }
 
     @Override
     protected void onDestroy() {
-        if (webView != null) {
-            webView.loadUrl("about:blank");
-            webView.destroy();
-            webView = null;
-        }
+        if (webView != null) { webView.loadUrl("about:blank"); webView.destroy(); webView = null; }
         super.onDestroy();
     }
 
     public class NativeBridge {
-        @JavascriptInterface
-        public void exportHtml(String name, String html, boolean openAfter) {
-            runOnUiThread(() -> requestExport(name, html, openAfter));
-        }
-
-        @JavascriptInterface
-        public String platform() {
-            return "android";
-        }
-
-        @JavascriptInterface
-        public String version() {
-            return "2.3.0-alpha.1";
-        }
+        @JavascriptInterface public void exportHtml(String name, String html, boolean openAfter) { runOnUiThread(() -> requestExport(name, html, openAfter)); }
+        @JavascriptInterface public String platform() { return "android"; }
+        @JavascriptInterface public String version() { return "2.4.0-alpha.1"; }
     }
 }
