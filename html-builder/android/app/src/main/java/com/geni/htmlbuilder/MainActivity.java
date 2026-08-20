@@ -18,7 +18,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
-    private static final int REQ_EXPORT = 2401;
+    private static final int REQ_EXPORT = 2501;
+    private static final String CLOUD_SCRIPT = "https://whtjqfdhhtahcuazzgee.supabase.co/functions/v1/coderbuilder-cloud-client";
     private WebView webView;
     private String pendingHtml = "";
     private String pendingName = "pagina.html";
@@ -31,8 +32,18 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.rgb(4, 10, 19));
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(7, 17, 31));
-        webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (url != null && url.startsWith("file:///android_asset/")) {
+                    String js = "(function(){if(document.getElementById('cb-cloud-v25'))return;var s=document.createElement('script');s.id='cb-cloud-v25';s.src='" + CLOUD_SCRIPT + "';s.async=true;document.body.appendChild(s);})();";
+                    view.evaluateJavascript(js, null);
+                }
+            }
+        });
+
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -108,6 +119,6 @@ public class MainActivity extends Activity {
     public class NativeBridge {
         @JavascriptInterface public void exportHtml(String name, String html, boolean openAfter) { runOnUiThread(() -> requestExport(name, html, openAfter)); }
         @JavascriptInterface public String platform() { return "android"; }
-        @JavascriptInterface public String version() { return "2.4.0-alpha.1"; }
+        @JavascriptInterface public String version() { return "2.5.0-alpha.1"; }
     }
 }
