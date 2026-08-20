@@ -1,8 +1,8 @@
-name: CoderBuilder 2.4 Build
+name: CoderBuilder 2.5 Build
 
 on:
   push:
-    branches: [coderbuilder-v2.4-alpha]
+    branches: [coderbuilder-v2.5-alpha]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -33,7 +33,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: CoderBuilder_2.4.0-alpha.1_Android
+          name: CoderBuilder_2.5.0-alpha.1_Android
           path: html-builder/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
@@ -68,6 +68,6 @@ jobs:
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: CoderBuilder_2.4.0-alpha.1_Windows
+          name: CoderBuilder_2.5.0-alpha.1_Windows
           path: html-builder/desktop-v3/dist/*.exe
           if-no-files-found: error
