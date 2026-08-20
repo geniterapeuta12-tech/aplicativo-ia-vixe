@@ -1,0 +1,27 @@
+{
+  "name": "coderbuilder-desktop",
+  "version": "2.2.0-alpha.1",
+  "private": true,
+  "description": "CoderBuilder desktop — Cole. Crie. Execute.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "31.3.1",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "com.coderbuilder.desktop",
+    "productName": "CoderBuilder",
+    "asar": true,
+    "files": ["index.html", "main.js", "preload.js"],
+    "directories": {"buildResources": "build", "output": "dist"},
+    "win": {
+      "target": [{"target": "portable", "arch": ["x64"]}],
+      "icon": "build/icon.ico"
+    },
+    "artifactName": "CoderBuilder_2.2.0-alpha.1_Windows.${ext}"
+  }
+}
